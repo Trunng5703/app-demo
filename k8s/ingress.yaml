@@ -1,0 +1,47 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: spring-petclinic
+  namespace: staging
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  tls:
+  - hosts:
+    - spring-petclinic.local
+    secretName: petclinic-tls
+  rules:
+  - host: spring-petclinic.local
+    http:
+      paths:
+      - path: /staging
+        pathType: Prefix
+        backend:
+          service:
+            name: spring-petclinic
+            port:
+              number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: spring-petclinic
+  namespace: production
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  tls:
+  - hosts:
+    - spring-petclinic.local
+    secretName: petclinic-tls
+  rules:
+  - host: spring-petclinic.local
+    http:
+      paths:
+      - path: /production
+        pathType: Prefix
+        backend:
+          service:
+            name: spring-petclinic
+            port:
+              number: 80
