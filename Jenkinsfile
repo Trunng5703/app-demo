@@ -66,7 +66,7 @@ pipeline {
             emailext(
                 subject: "Pipeline ${currentBuild.result ?: 'SUCCESS'} for app-demo #${env.BUILD_NUMBER}",
                 body: "Pipeline ${currentBuild.result ?: 'SUCCESS'}. Build URL: ${env.BUILD_URL}\nCheck logs for details.",
-                to: "your.email@example.com",
+                to: "trinhhatrung69@gmail.com",
                 attachLog: true
             )
         }
