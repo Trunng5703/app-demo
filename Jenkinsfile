@@ -12,20 +12,20 @@ pipeline {
                 sh 'ls -la'
             }
         }
+        stage('Build') {
+            steps {
+                sh './mvnw clean package'
+                archiveArtifacts artifacts: 'target/*.jar', allowEmptyArchive: true
+            }
+        }
         stage('SonarQube Analysis') {
             options {
                 timeout(time: 30, unit: 'MINUTES')
             }
             steps {
                 withSonarQubeEnv('SonarQube') {
-                    sh './mvnw sonar:sonar -Dsonar.login=$SONAR_TOKEN'
+                    sh './mvnw sonar:sonar -Dsonar.login=$SONAR_TOKEN -Dsonar.java.binaries=target/classes'
                 }
-            }
-        }
-        stage('Build') {
-            steps {
-                sh './mvnw clean package'
-                archiveArtifacts artifacts: 'target/*.jar', allowEmptyArchive: true
             }
         }
         stage('Test') {
@@ -63,12 +63,6 @@ pipeline {
     post {
         always {
             echo "Pipeline completed."
-            emailext(
-                subject: "Pipeline ${currentBuild.result ?: 'SUCCESS'} for app-demo #${env.BUILD_NUMBER}",
-                body: "Pipeline ${currentBuild.result ?: 'SUCCESS'}. Build URL: ${env.BUILD_URL}\nCheck logs for details.",
-                to: "trinhhatrung69@gmail.com",
-                attachLog: true
-            )
         }
         failure {
             echo "Pipeline failed. Check logs for details."
