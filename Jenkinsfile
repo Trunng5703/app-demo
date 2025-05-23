@@ -63,13 +63,15 @@ pipeline {
     post {
         always {
             echo "Pipeline completed."
-        }
-        success {
-            slackSend(channel: '#ci-cd', color: 'good', message: "Pipeline succeeded for app-demo: ${env.BUILD_URL}")
+            emailext(
+                subject: "Pipeline ${currentBuild.result ?: 'SUCCESS'} for app-demo #${env.BUILD_NUMBER}",
+                body: "Pipeline ${currentBuild.result ?: 'SUCCESS'}. Build URL: ${env.BUILD_URL}\nCheck logs for details.",
+                to: "your.email@example.com",
+                attachLog: true
+            )
         }
         failure {
             echo "Pipeline failed. Check logs for details."
-            slackSend(channel: '#ci-cd', color: 'danger', message: "Pipeline failed for app-demo: ${env.BUILD_URL}")
         }
     }
 }
