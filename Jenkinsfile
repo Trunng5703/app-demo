@@ -41,12 +41,12 @@ pipeline {
             }
             steps {
                 sh '''
-                git clone https://$GITHUB_CREDENTIALS_USR:$GITHUB_CREDENTIALS_PSW@github.com/Trunng5703/app-demo-staging.git
-                cd app-demo-staging
-                sed -i "s|image: trunng5703/petclinic:.*|image: trunng5703/petclinic:${BUILD_NUMBER}|" k8s/deployment.yaml
-                git add k8s/deployment.yaml
-                git commit -m "Update image tag to ${BUILD_NUMBER}"
-                git push origin main
+                    git clone https://$GITHUB_CREDENTIALS_USR:$GITHUB_CREDENTIALS_PSW@github.com/Trunng5703/app-demo-staging.git
+                    cd app-demo-staging
+                    sed -i "s|image: trunng5703/petclinic:.*|image: trunng5703/petclinic:${BUILD_NUMBER}|" k8s/deployment.yaml
+                    git add k8s/deployment.yaml
+                    git commit -m "Update image tag to ${BUILD_NUMBER}" || true
+                    git push origin main
                 '''
             }
         }
@@ -56,13 +56,14 @@ pipeline {
             }
             steps {
                 sh '''
-                git clone https://$GITHUB_CREDENTIALS_USR:$GITHUB_CREDENTIALS_PSW@github.com/Trunng5703/app-demo-production.git
-                cd app-demo-production
-                sed -i "s|image: trunng5703/petclinic:.*|image: trunng5703/petclinic:${BUILD_NUMBER}|" k8s/deployment.yaml
-                git add k8s/deployment.yaml
-                git commit -m "Update image tag to ${BUILD_NUMBER}"
-                git push origin main
+                    git clone https://$GITHUB_CREDENTIALS_USR:$GITHUB_CREDENTIALS_PSW@github.com/Trunng5703/app-demo-production.git
+                    cd app-demo-production
+                    sed -i "s|image: trunng5703/petclinic:.*|image: trunng5703/petclinic:${BUILD_NUMBER}|" k8s/deployment.yaml
+                    git add k8s/deployment.yaml
+                    git commit -m "Update image tag to ${BUILD_NUMBER}" || true
+                    git push origin main
                 '''
             }
         }
     }
+}
