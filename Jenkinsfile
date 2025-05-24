@@ -9,7 +9,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git url: 'https://github.com/Trunng5703/app-demo.git', credentialsId: 'github-credentials'
+                git branch: 'main', url: 'https://github.com/Trunng5703/app-demo.git', credentialsId: 'github-credentials'
             }
         }
         stage('Build and Test') {
