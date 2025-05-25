@@ -47,9 +47,9 @@ pipeline {
                 branch 'develop'
             }
             steps {
-                sh '''
-                    /bin/bash -c "./mvnw compile com.google.cloud.tools:jib-maven-plugin:3.4.3:build -Dimage=$DOCKER_IMAGE:${env.BUILD_NUMBER} -Djib.to.auth.username=$DOCKERHUB_CREDENTIALS_USR -Djib.to.auth.password=$DOCKERHUB_CREDENTIALS_PSW"
-                '''
+                withEnv(["DOCKER_IMAGE=${DOCKER_IMAGE}", "BUILD_NUMBER=${env.BUILD_NUMBER}"]) {
+                    sh '/bin/bash -c "./mvnw compile com.google.cloud.tools:jib-maven-plugin:3.4.3:build -Dimage=$DOCKER_IMAGE:$BUILD_NUMBER -Djib.to.auth.username=${DOCKERHUB_CREDENTIALS_USR} -Djib.to.auth.password=${DOCKERHUB_CREDENTIALS_PSW}"'
+                }
             }
         }
         stage('Trigger ArgoCD Sync (Staging)') {
@@ -57,9 +57,7 @@ pipeline {
                 branch 'develop'
             }
             steps {
-                sh '''
-                    /bin/bash -c "argocd app sync app-demo-staging --server 172.16.10.11:32120 --auth-token $(argocd account generate-token --account admin)"
-                '''
+                sh '/bin/bash -c "argocd app sync app-demo-staging --server 172.16.10.11:32120 --auth-token $(argocd account generate-token --account admin)"'
             }
         }
         stage('Build Docker Image (Main)') {
@@ -67,9 +65,9 @@ pipeline {
                 branch 'main'
             }
             steps {
-                sh '''
-                    /bin/bash -c "./mvnw compile com.google.cloud.tools:jib-maven-plugin:3.4.3:build -Dimage=$DOCKER_IMAGE:${env.BUILD_NUMBER} -Djib.to.auth.username=$DOCKERHUB_CREDENTIALS_USR -Djib.to.auth.password=$DOCKERHUB_CREDENTIALS_PSW"
-                '''
+                withEnv(["DOCKER_IMAGE=${DOCKER_IMAGE}", "BUILD_NUMBER=${env.BUILD_NUMBER}"]) {
+                    sh '/bin/bash -c "./mvnw compile com.google.cloud.tools:jib-maven-plugin:3.4.3:build -Dimage=$DOCKER_IMAGE:$BUILD_NUMBER -Djib.to.auth.username=${DOCKERHUB_CREDENTIALS_USR} -Djib.to.auth.password=${DOCKERHUB_CREDENTIALS_PSW}"'
+                }
             }
         }
         stage('Trigger ArgoCD Sync (Production)') {
@@ -77,9 +75,7 @@ pipeline {
                 branch 'main'
             }
             steps {
-                sh '''
-                    /bin/bash -c "argocd app sync app-demo-production --server 172.16.10.11:32120 --auth-token $(argocd account generate-token --account admin)"
-                '''
+                sh '/bin/bash -c "argocd app sync app-demo-production --server 172.16.10.11:32120 --auth-token $(argocd account generate-token --account admin)"'
             }
         }
     }
