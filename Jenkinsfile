@@ -9,7 +9,6 @@ pipeline {
     stages {
         stage('Fetch Jenkinsfile from main') {
             steps {
-                // Checkout only Jenkinsfile from main branch
                 sh '''
                     git fetch origin main
                     git checkout origin/main -- Jenkinsfile
@@ -18,8 +17,17 @@ pipeline {
         }
         stage('Checkout') {
             steps {
-                // Checkout source code from the triggering branch
-                git url: 'https://github.com/Trunng5703/app-demo.git', credentialsId: 'github-credentials', branch: "${env.BRANCH_NAME}"
+                script {
+                    def branch = env.BRANCH_NAME ?: 'main'
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: "*/${branch}"]],
+                        userRemoteConfigs: [[
+                            url: 'https://github.com/Trunng5703/app-demo.git',
+                            credentialsId: 'github-credentials'
+                        ]]
+                    ])
+                }
             }
         }
         stage('Build and Test') {
@@ -52,7 +60,7 @@ pipeline {
         }
         stage('Update GitOps Repo - Staging') {
             when {
-                branch 'develop'
+                expression { return env.BRANCH_NAME == 'develop' || env.BRANCH_NAME == null }
             }
             steps {
                 sh '''
@@ -67,7 +75,7 @@ pipeline {
         }
         stage('Update GitOps Repo - Production') {
             when {
-                branch 'main'
+                expression { return env.BRANCH_NAME == 'main' }
             }
             steps {
                 sh '''
