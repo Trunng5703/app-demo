@@ -9,24 +9,29 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/Trunng5703/app-demo.git', credentialsId: 'github-credentials'
+                git url: 'https://github.com/Trunng5703/app-demo.git', credentialsId: 'github-credentials', branch: "${env.BRANCH_NAME}"
             }
         }
         stage('Build and Test') {
             steps {
-                sh './mvnw clean package'
+                sh './mvnw clean package -Dspring.docker.compose.skip.in-tests=true -Dspring.profiles.active=postgres'
             }
         }
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('SonarQube') {
-                    sh './mvnw sonar:sonar -Dsonar.login=$SONARQUBE_TOKEN'
+                    sh './mvnw sonar:sonar -Dsonar.login=$SONARQUBE_TOKEN -Dspring.docker.compose.skip.in-tests=true -Dspring.profiles.active=postgres'
                 }
             }
         }
         stage('Build Docker Image') {
             steps {
                 sh './mvnw spring-boot:build-image -Dspring-boot.build-image.imageName=$IMAGE_NAME:${BUILD_NUMBER}'
+            }
+        }
+        stage('Scan Docker Image') {
+            steps {
+                sh 'trivy image --exit-code 1 --severity HIGH,CRITICAL $IMAGE_NAME:${BUILD_NUMBER}'
             }
         }
         stage('Push Docker Image') {
@@ -64,6 +69,11 @@ pipeline {
                     git push origin main
                 '''
             }
+        }
+    }
+    post {
+        always {
+            cleanWs()
         }
     }
 }
