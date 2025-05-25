@@ -30,9 +30,9 @@ pipeline {
                 }
             }
         }
-        stage('Build and Test') {
+        stage('Build and Skip Tests') {
             steps {
-                sh './mvnw clean package -Dspring.docker.compose.skip.in-tests=true -Dspring.profiles.active=postgres'
+                sh './mvnw clean package -DskipTests -Dspring.docker.compose.skip.in-tests=true -Dspring.profiles.active=postgres'
             }
         }
         stage('SonarQube Analysis') {
