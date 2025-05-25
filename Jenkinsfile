@@ -5,12 +5,21 @@ pipeline {
         GITHUB_CREDENTIALS = credentials('github-credentials')
         SONARQUBE_TOKEN = credentials('sonarqube-token')
         IMAGE_NAME = 'trunng5703/petclinic'
-        BRANCH_NAME = "${env.BRANCH_NAME ?: 'main'}"
     }
     stages {
+        stage('Fetch Jenkinsfile from main') {
+            steps {
+                // Checkout only Jenkinsfile from main branch
+                sh '''
+                    git fetch origin main
+                    git checkout origin/main -- Jenkinsfile
+                '''
+            }
+        }
         stage('Checkout') {
             steps {
-                git url: 'https://github.com/Trunng5703/app-demo.git', credentialsId: 'github-credentials', branch: "${env.BRANCH_NAME ?: 'main'}
+                // Checkout source code from the triggering branch
+                git url: 'https://github.com/Trunng5703/app-demo.git', credentialsId: 'github-credentials', branch: "${env.BRANCH_NAME}"
             }
         }
         stage('Build and Test') {
