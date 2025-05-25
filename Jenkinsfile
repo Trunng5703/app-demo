@@ -1,91 +1,76 @@
 pipeline {
     agent any
+    tools {
+        jdk 'jdk17'
+        maven 'maven3'
+    }
     environment {
         DOCKERHUB_CREDENTIALS = credentials('docker-hub-credentials')
-        GITHUB_CREDENTIALS = credentials('github-credentials')
-        SONARQUBE_TOKEN = credentials('sonarqube-token')
-        IMAGE_NAME = 'trunng5703/petclinic'
+        DOCKER_IMAGE = "trunng5703/app-demo"
+        SONAR_TOKEN = credentials('sonarqube-token')
+        GIT_CREDENTIALS = credentials('github-credentials')
     }
     stages {
-        stage('Fetch Jenkinsfile from main') {
-            steps {
-                sh '''
-                    git fetch origin main
-                    git checkout origin/main -- Jenkinsfile
-                '''
-            }
-        }
         stage('Checkout') {
             steps {
-                script {
-                    def branch = env.BRANCH_NAME ?: 'main'
-                    checkout([
-                        $class: 'GitSCM',
-                        branches: [[name: "*/${branch}"]],
-                        userRemoteConfigs: [[
-                            url: 'https://github.com/Trunng5703/app-demo.git',
-                            credentialsId: 'github-credentials'
-                        ]]
-                    ])
-                }
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: "*/${env.BRANCH_NAME}"]],
+                    userRemoteConfigs: [[
+                        url: 'https://github.com/Trunng5703/app-demo.git',
+                        credentialsId: 'github-credentials'
+                    ]]
+                ])
             }
         }
-        stage('Build and Skip Tests') {
+        stage('Build and Test (Develop)') {
+            when {
+                branch 'develop'
+            }
             steps {
-                sh './mvnw clean package -DskipTests -Dspring.docker.compose.skip.in-tests=true -Dspring.profiles.active=postgres'
+                sh './mvnw clean package -Dspring.profiles.active=test'
             }
         }
-        stage('SonarQube Analysis') {
+        stage('SonarQube Scan (Develop)') {
+            when {
+                branch 'develop'
+            }
             steps {
                 withSonarQubeEnv('SonarQube') {
-                    sh './mvnw sonar:sonar -Dsonar.login=$SONARQUBE_TOKEN -Dspring.docker.compose.skip.in-tests=true -Dspring.profiles.active=postgres'
+                    sh './mvnw sonar:sonar -Dsonar.host.url=http://172.16.10.41:9000 -Dsonar.login=$SONAR_TOKEN'
                 }
             }
         }
-        stage('Build Docker Image') {
-            steps {
-                sh './mvnw spring-boot:build-image -Dspring-boot.build-image.imageName=$IMAGE_NAME:${BUILD_NUMBER}'
-            }
-        }
-        stage('Scan Docker Image') {
-            steps {
-                sh 'trivy image --exit-code 1 --severity HIGH,CRITICAL $IMAGE_NAME:${BUILD_NUMBER}'
-            }
-        }
-        stage('Push Docker Image') {
-            steps {
-                sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
-                sh 'docker push $IMAGE_NAME:${BUILD_NUMBER}'
-            }
-        }
-        stage('Update GitOps Repo - Staging') {
+        stage('Build Docker Image (Develop)') {
             when {
-                expression { return env.BRANCH_NAME == 'develop' || env.BRANCH_NAME == null }
+                branch 'develop'
             }
             steps {
-                sh '''
-                    git clone https://$GITHUB_CREDENTIALS_USR:$GITHUB_CREDENTIALS_PSW@github.com/Trunng5703/app-demo-staging.git
-                    cd app-demo-staging
-                    sed -i "s|image: trunng5703/petclinic:.*|image: trunng5703/petclinic:${BUILD_NUMBER}|" k8s/deployment.yaml
-                    git add k8s/deployment.yaml
-                    git commit -m "Update image tag to ${BUILD_NUMBER}" || true
-                    git push origin main
-                '''
+                sh './mvnw compile com.google.cloud.tools:jib-maven-plugin:3.4.3:build -Dimage=$DOCKER_IMAGE:${env.BUILD_NUMBER} -Djib.to.auth.username=$DOCKERHUB_CREDENTIALS_USR -Djib.to.auth.password=$DOCKERHUB_CREDENTIALS_PSW'
             }
         }
-        stage('Update GitOps Repo - Production') {
+        stage('Trigger ArgoCD Sync (Staging)') {
             when {
-                expression { return env.BRANCH_NAME == 'main' }
+                branch 'develop'
             }
             steps {
-                sh '''
-                    git clone https://$GITHUB_CREDENTIALS_USR:$GITHUB_CREDENTIALS_PSW@github.com/Trunng5703/app-demo-production.git
-                    cd app-demo-production
-                    sed -i "s|image: trunng5703/petclinic:.*|image: trunng5703/petclinic:${BUILD_NUMBER}|" k8s/deployment.yaml
-                    git add k8s/deployment.yaml
-                    git commit -m "Update image tag to ${BUILD_NUMBER}" || true
-                    git push origin main
-                '''
+                sh 'argocd app sync app-demo-staging --server 172.16.10.11:32120 --auth-token $(argocd account generate-token --account admin)'
+            }
+        }
+        stage('Build Docker Image (Main)') {
+            when {
+                branch 'main'
+            }
+            steps {
+                sh './mvnw compile com.google.cloud.tools:jib-maven-plugin:3.4.3:build -Dimage=$DOCKER_IMAGE:${env.BUILD_NUMBER} -Djib.to.auth.username=$DOCKERHUB_CREDENTIALS_USR -Djib.to.auth.password=$DOCKERHUB_CREDENTIALS_PSW'
+            }
+        }
+        stage('Trigger ArgoCD Sync (Production)') {
+            when {
+                branch 'main'
+            }
+            steps {
+                sh 'argocd app sync app-demo-production --server 172.16.10.11:32120 --auth-token $(argocd account generate-token --account admin)'
             }
         }
     }
