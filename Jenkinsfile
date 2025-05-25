@@ -1,9 +1,5 @@
 pipeline {
     agent any
-    tools {
-        jdk 'jdk17'
-        maven 'maven3'
-    }
     environment {
         DOCKERHUB_CREDENTIALS = credentials('docker-hub-credentials')
         DOCKER_IMAGE = "trunng5703/app-demo"
