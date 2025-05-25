@@ -5,11 +5,12 @@ pipeline {
         GITHUB_CREDENTIALS = credentials('github-credentials')
         SONARQUBE_TOKEN = credentials('sonarqube-token')
         IMAGE_NAME = 'trunng5703/petclinic'
+        BRANCH_NAME = "${env.BRANCH_NAME ?: 'main'}"
     }
     stages {
         stage('Checkout') {
             steps {
-                git url: 'https://github.com/Trunng5703/app-demo.git', credentialsId: 'github-credentials', branch: "${env.BRANCH_NAME}"
+                git url: 'https://github.com/Trunng5703/app-demo.git', credentialsId: 'github-credentials', branch: "${env.BRANCH_NAME ?: 'main'}
             }
         }
         stage('Build and Test') {
