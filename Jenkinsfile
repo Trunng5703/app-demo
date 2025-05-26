@@ -5,6 +5,7 @@ pipeline {
         DOCKER_IMAGE = "trunng5703/app-demo"
         SONAR_TOKEN = credentials('sonarqube-token')
         GIT_CREDENTIALS = credentials('github-credentials')
+        ARGOCD_SERVER = "172.16.10.11:32120"
     }
     stages {
         stage('Checkout') {
@@ -57,7 +58,12 @@ pipeline {
                 branch 'develop'
             }
             steps {
-                sh '/bin/bash -c "argocd app sync app-demo-staging --server 172.16.10.11:32120 --auth-token $(argocd account generate-token --account admin)"'
+                withCredentials([string(credentialsId: 'argocd-admin-password', variable: 'ARGOCD_PASSWORD')]) {
+                    sh '''
+                        /bin/bash -c "argocd login $ARGOCD_SERVER --username admin --password $ARGOCD_PASSWORD --insecure && \
+                        argocd app sync app-demo-staging --server $ARGOCD_SERVER --auth-token $(argocd account generate-token --account admin)"
+                    '''
+                }
             }
         }
         stage('Build Docker Image (Main)') {
@@ -75,7 +81,12 @@ pipeline {
                 branch 'main'
             }
             steps {
-                sh '/bin/bash -c "argocd app sync app-demo-production --server 172.16.10.11:32120 --auth-token $(argocd account generate-token --account admin)"'
+                withCredentials([string(credentialsId: 'argocd-admin-password', variable: 'ARGOCD_PASSWORD')]) {
+                    sh '''
+                        /bin/bash -c "argocd login $ARGOCD_SERVER --username admin --password $ARGOCD_PASSWORD --insecure && \
+                        argocd app sync app-demo-production --server $ARGOCD_SERVER --auth-token $(argocd account generate-token --account admin)"
+                    '''
+                }
             }
         }
     }
