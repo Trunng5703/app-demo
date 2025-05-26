@@ -6,7 +6,7 @@ pipeline {
         SONAR_TOKEN = credentials('sonarqube-token')
         GIT_CREDENTIALS = credentials('github-credentials')
         ARGOCD_SERVER = "172.16.10.11:32120"
-        ARGOCD_TOKEN = credentials('argocd-admin-token') // Sử dụng token đã lưu
+        ARGOCD_TOKEN = credentials('argocd-admin-token') // Sử dụng token từ credential
     }
     stages {
         stage('Checkout') {
@@ -54,12 +54,25 @@ pipeline {
                 }
             }
         }
+        stage('Pull Docker Image (Develop)') {
+            when {
+                branch 'develop'
+            }
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
+                    sh '''
+                        /bin/bash -x -c "\
+                        docker login -u \"$DOCKERHUB_USERNAME\" -p \"$DOCKERHUB_PASSWORD\" && \
+                        docker pull ${DOCKER_IMAGE}:latest || { echo 'Failed to pull Docker image'; exit 1; }"
+                    '''
+                }
+            }
+        }
         stage('Trigger ArgoCD Sync (Staging)') {
             when {
                 branch 'develop'
             }
             steps {
-                // Không cần withCredentials cho password nữa, chỉ dùng token
                 sh '''
                     /bin/bash -x -c "argocd app sync app-demo-staging --server $ARGOCD_SERVER --auth-token \"$ARGOCD_TOKEN\" --insecure"
                 '''
@@ -72,6 +85,20 @@ pipeline {
             steps {
                 withEnv(["DOCKER_IMAGE=${DOCKER_IMAGE}", "BUILD_NUMBER=${env.BUILD_NUMBER}"]) {
                     sh '/bin/bash -c "./mvnw compile com.google.cloud.tools:jib-maven-plugin:3.4.3:build -Dimage=$DOCKER_IMAGE:$BUILD_NUMBER -Djib.to.auth.username=${DOCKERHUB_CREDENTIALS_USR} -Djib.to.auth.password=${DOCKERHUB_CREDENTIALS_PSW}"'
+                }
+            }
+        }
+        stage('Pull Docker Image (Main)') {
+            when {
+                branch 'main'
+            }
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
+                    sh '''
+                        /bin/bash -x -c "\
+                        docker login -u \"$DOCKERHUB_USERNAME\" -p \"$DOCKERHUB_PASSWORD\" && \
+                        docker pull ${DOCKER_IMAGE}:latest || { echo 'Failed to pull Docker image'; exit 1; }"
+                    '''
                 }
             }
         }
