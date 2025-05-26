@@ -6,6 +6,7 @@ pipeline {
         SONAR_TOKEN = credentials('sonarqube-token')
         GIT_CREDENTIALS = credentials('github-credentials')
         ARGOCD_SERVER = "172.16.10.11:32120"
+        ARGOCD_TOKEN = credentials('argocd-admin-token') // Sử dụng token đã lưu
     }
     stages {
         stage('Checkout') {
@@ -58,19 +59,10 @@ pipeline {
                 branch 'develop'
             }
             steps {
-                withCredentials([string(credentialsId: 'argocd-admin-password', variable: 'ARGOCD_PASSWORD')]) {
-                    // Bước 1: Đăng nhập vào ArgoCD và lưu context
-                    sh '''
-                        /bin/bash -x -c "argocd login $ARGOCD_SERVER --username admin --password \"$ARGOCD_PASSWORD\" --insecure --grpc-web || \
-                        { echo 'Failed to login to ArgoCD'; exit 1; }"
-                    '''
-                    // Bước 2: Tạo token và đồng bộ ứng dụng
-                    sh '''
-                        /bin/bash -x -c "TOKEN=$(argocd account generate-token --account admin) && \
-                        echo 'Generated token: $TOKEN' && \
-                        argocd app sync app-demo-staging --server $ARGOCD_SERVER --auth-token \"$TOKEN\" --insecure"
-                    '''
-                }
+                // Không cần withCredentials cho password nữa, chỉ dùng token
+                sh '''
+                    /bin/bash -x -c "argocd app sync app-demo-staging --server $ARGOCD_SERVER --auth-token \"$ARGOCD_TOKEN\" --insecure"
+                '''
             }
         }
         stage('Build Docker Image (Main)') {
@@ -88,19 +80,9 @@ pipeline {
                 branch 'main'
             }
             steps {
-                withCredentials([string(credentialsId: 'argocd-admin-password', variable: 'ARGOCD_PASSWORD')]) {
-                    // Bước 1: Đăng nhập vào ArgoCD và lưu context
-                    sh '''
-                        /bin/bash -x -c "argocd login $ARGOCD_SERVER --username admin --password \"$ARGOCD_PASSWORD\" --insecure --grpc-web || \
-                        { echo 'Failed to login to ArgoCD'; exit 1; }"
-                    '''
-                    // Bước 2: Tạo token và đồng bộ ứng dụng
-                    sh '''
-                        /bin/bash -x -c "TOKEN=$(argocd account generate-token --account admin) && \
-                        echo 'Generated token: $TOKEN' && \
-                        argocd app sync app-demo-production --server $ARGOCD_SERVER --auth-token \"$TOKEN\" --insecure"
-                    '''
-                }
+                sh '''
+                    /bin/bash -x -c "argocd app sync app-demo-production --server $ARGOCD_SERVER --auth-token \"$ARGOCD_TOKEN\" --insecure"
+                '''
             }
         }
     }
