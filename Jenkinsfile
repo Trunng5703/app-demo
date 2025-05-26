@@ -59,9 +59,16 @@ pipeline {
             }
             steps {
                 withCredentials([string(credentialsId: 'argocd-admin-password', variable: 'ARGOCD_PASSWORD')]) {
+                    // Bước 1: Đăng nhập vào ArgoCD và lưu context
                     sh '''
-                        /bin/bash -c "argocd login $ARGOCD_SERVER --username admin --password $ARGOCD_PASSWORD --insecure && \
-                        argocd app sync app-demo-staging --server $ARGOCD_SERVER --auth-token $(argocd account generate-token --account admin)"
+                        /bin/bash -x -c "argocd login $ARGOCD_SERVER --username admin --password \"$ARGOCD_PASSWORD\" --insecure --grpc-web || \
+                        { echo 'Failed to login to ArgoCD'; exit 1; }"
+                    '''
+                    // Bước 2: Tạo token và đồng bộ ứng dụng
+                    sh '''
+                        /bin/bash -x -c "TOKEN=$(argocd account generate-token --account admin) && \
+                        echo 'Generated token: $TOKEN' && \
+                        argocd app sync app-demo-staging --server $ARGOCD_SERVER --auth-token \"$TOKEN\" --insecure"
                     '''
                 }
             }
@@ -82,9 +89,16 @@ pipeline {
             }
             steps {
                 withCredentials([string(credentialsId: 'argocd-admin-password', variable: 'ARGOCD_PASSWORD')]) {
+                    // Bước 1: Đăng nhập vào ArgoCD và lưu context
                     sh '''
-                        /bin/bash -c "argocd login $ARGOCD_SERVER --username admin --password $ARGOCD_PASSWORD --insecure && \
-                        argocd app sync app-demo-production --server $ARGOCD_SERVER --auth-token $(argocd account generate-token --account admin)"
+                        /bin/bash -x -c "argocd login $ARGOCD_SERVER --username admin --password \"$ARGOCD_PASSWORD\" --insecure --grpc-web || \
+                        { echo 'Failed to login to ArgoCD'; exit 1; }"
+                    '''
+                    // Bước 2: Tạo token và đồng bộ ứng dụng
+                    sh '''
+                        /bin/bash -x -c "TOKEN=$(argocd account generate-token --account admin) && \
+                        echo 'Generated token: $TOKEN' && \
+                        argocd app sync app-demo-production --server $ARGOCD_SERVER --auth-token \"$TOKEN\" --insecure"
                     '''
                 }
             }
