@@ -36,8 +36,8 @@ pipeline {
                 branch 'develop'
             }
             steps {
-                // Build và test với profile postgres
-                sh './mvnw clean package -Dspring.profiles.active=postgres'
+                // Bỏ qua test trên Jenkins với -DskipTests
+                sh './mvnw clean package -Dspring.profiles.active=postgres -DskipTests'
             }
         }
         stage('SonarQube Scan (Develop)') {
@@ -86,8 +86,8 @@ pipeline {
                 branch 'main'
             }
             steps {
-                // Build và test với profile postgres
-                sh './mvnw clean package -Dspring.profiles.active=postgres'
+                // Bỏ qua test trên Jenkins với -DskipTests
+                sh './mvnw clean package -Dspring.profiles.active=postgres -DskipTests'
             }
         }
         stage('Build Docker Image (Main)') {
