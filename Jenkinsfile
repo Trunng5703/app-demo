@@ -2,11 +2,10 @@ pipeline {
     agent any
     environment {
         DOCKERHUB_CREDENTIALS = credentials('docker-hub-credentials')
-        DOCKER_IMAGE = "trunng5703/app-demo"
+        DOCKER_IMAGE = "trunng5703/petclinic"
         SONAR_TOKEN = credentials('sonarqube-token')
         GIT_CREDENTIALS = credentials('github-credentials')
-        ARGOCD_SERVER = "172.16.10.11:32120"
-        ARGOCD_TOKEN = credentials('argocd-admin-token') // Sử dụng token từ credential
+        ARGOCD_TOKEN = credentials('argocd-admin-token')  // Sử dụng tên credential chính xác
     }
     stages {
         stage('Checkout') {
@@ -49,23 +48,9 @@ pipeline {
                 branch 'develop'
             }
             steps {
-                withEnv(["DOCKER_IMAGE=${DOCKER_IMAGE}", "BUILD_NUMBER=${env.BUILD_NUMBER}"]) {
-                    sh '/bin/bash -c "./mvnw compile com.google.cloud.tools:jib-maven-plugin:3.4.3:build -Dimage=$DOCKER_IMAGE:$BUILD_NUMBER -Djib.to.auth.username=${DOCKERHUB_CREDENTIALS_USR} -Djib.to.auth.password=${DOCKERHUB_CREDENTIALS_PSW}"'
-                }
-            }
-        }
-        stage('Pull Docker Image (Develop)') {
-            when {
-                branch 'develop'
-            }
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
-                    sh '''
-                        /bin/bash -x -c "\
-                        docker login -u \"$DOCKERHUB_USERNAME\" -p \"$DOCKERHUB_PASSWORD\" && \
-                        docker pull ${DOCKER_IMAGE}:latest || { echo 'Failed to pull Docker image'; exit 1; }"
-                    '''
-                }
+                sh '''
+                    /bin/bash -c "./mvnw compile com.google.cloud.tools:jib-maven-plugin:3.4.3:build -Dimage=$DOCKER_IMAGE:${env.BUILD_NUMBER} -Djib.to.auth.username=$DOCKERHUB_CREDENTIALS_USR -Djib.to.auth.password=$DOCKERHUB_CREDENTIALS_PSW"
+                '''
             }
         }
         stage('Trigger ArgoCD Sync (Staging)') {
@@ -74,7 +59,7 @@ pipeline {
             }
             steps {
                 sh '''
-                    /bin/bash -x -c "argocd app sync app-demo-staging --server $ARGOCD_SERVER --auth-token \"$ARGOCD_TOKEN\" --insecure"
+                    /bin/bash -c "argocd app sync app-demo-staging --server 172.16.10.11:32120 --auth-token $ARGOCD_TOKEN --insecure"
                 '''
             }
         }
@@ -83,23 +68,9 @@ pipeline {
                 branch 'main'
             }
             steps {
-                withEnv(["DOCKER_IMAGE=${DOCKER_IMAGE}", "BUILD_NUMBER=${env.BUILD_NUMBER}"]) {
-                    sh '/bin/bash -c "./mvnw compile com.google.cloud.tools:jib-maven-plugin:3.4.3:build -Dimage=$DOCKER_IMAGE:$BUILD_NUMBER -Djib.to.auth.username=${DOCKERHUB_CREDENTIALS_USR} -Djib.to.auth.password=${DOCKERHUB_CREDENTIALS_PSW}"'
-                }
-            }
-        }
-        stage('Pull Docker Image (Main)') {
-            when {
-                branch 'main'
-            }
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
-                    sh '''
-                        /bin/bash -x -c "\
-                        docker login -u \"$DOCKERHUB_USERNAME\" -p \"$DOCKERHUB_PASSWORD\" && \
-                        docker pull ${DOCKER_IMAGE}:latest || { echo 'Failed to pull Docker image'; exit 1; }"
-                    '''
-                }
+                sh '''
+                    /bin/bash -c "./mvnw compile com.google.cloud.tools:jib-maven-plugin:3.4.3:build -Dimage=$DOCKER_IMAGE:${env.BUILD_NUMBER} -Djib.to.auth.username=$DOCKERHUB_CREDENTIALS_USR -Djib.to.auth.password=$DOCKERHUB_CREDENTIALS_PSW"
+                '''
             }
         }
         stage('Trigger ArgoCD Sync (Production)') {
@@ -108,7 +79,7 @@ pipeline {
             }
             steps {
                 sh '''
-                    /bin/bash -x -c "argocd app sync app-demo-production --server $ARGOCD_SERVER --auth-token \"$ARGOCD_TOKEN\" --insecure"
+                    /bin/bash -c "argocd app sync app-demo-production --server 172.16.10.11:32120 --auth-token $ARGOCD_TOKEN --insecure"
                 '''
             }
         }
