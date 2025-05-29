@@ -2,7 +2,7 @@ pipeline {
     agent any
     environment {
         DOCKERHUB_CREDENTIALS = credentials('docker-hub-credentials')
-        DOCKER_IMAGE = "trunng5703/app-demo"
+        DOCKER_IMAGE = "trunng5703/petclinic"
         SONAR_TOKEN = credentials('sonarqube-token')
         GIT_CREDENTIALS = credentials('github-credentials')
     }
