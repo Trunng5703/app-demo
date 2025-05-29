@@ -5,6 +5,7 @@ pipeline {
         DOCKER_IMAGE = "trunng5703/petclinic"
         SONAR_TOKEN = credentials('sonarqube-token')
         GIT_CREDENTIALS = credentials('github-credentials')
+        ARGOCD_TOKEN = credentials('argocd-admin-token')  // Sử dụng tên credential chính xác
     }
     stages {
         stage('Checkout') {
@@ -58,7 +59,7 @@ pipeline {
             }
             steps {
                 sh '''
-                    /bin/bash -c "argocd app sync app-demo-staging --server 172.16.10.11:32120 --auth-token $(argocd account generate-token --account admin)"
+                    /bin/bash -c "argocd app sync app-demo-staging --server 172.16.10.11:32120 --auth-token $ARGOCD_TOKEN --insecure"
                 '''
             }
         }
@@ -78,7 +79,7 @@ pipeline {
             }
             steps {
                 sh '''
-                    /bin/bash -c "argocd app sync app-demo-production --server 172.16.10.11:32120 --auth-token $(argocd account generate-token --account admin)"
+                    /bin/bash -c "argocd app sync app-demo-production --server 172.16.10.11:32120 --auth-token $ARGOCD_TOKEN --insecure"
                 '''
             }
         }
