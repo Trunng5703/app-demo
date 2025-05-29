@@ -3,9 +3,15 @@ pipeline {
     environment {
         DOCKERHUB_CREDENTIALS = credentials('docker-hub-credentials')
         DOCKER_IMAGE = "trunng5703/petclinic"
+        DOCKER_TAG = "${env.BUILD_NUMBER}"
         SONAR_TOKEN = credentials('sonarqube-token')
         GIT_CREDENTIALS = credentials('github-credentials')
-        ARGOCD_TOKEN = credentials('argocd-admin-token')  // Sử dụng tên credential chính xác
+        ARGOCD_TOKEN = credentials('argocd-admin-token')
+        // Biến môi trường cho PostgreSQL
+        SPRING_PROFILES_ACTIVE = 'postgres'
+        SPRING_DATASOURCE_URL = 'jdbc:postgresql://postgres-service.staging.svc.cluster.local:5432/petclinic'
+        SPRING_DATASOURCE_USERNAME = 'petclinic'
+        SPRING_DATASOURCE_PASSWORD = 'petclinic'
     }
     stages {
         stage('Checkout') {
@@ -30,7 +36,8 @@ pipeline {
                 branch 'develop'
             }
             steps {
-                sh './mvnw clean package -Dspring.profiles.active=test'
+                // Build và test với profile postgres
+                sh './mvnw clean package -Dspring.profiles.active=postgres'
             }
         }
         stage('SonarQube Scan (Develop)') {
@@ -48,9 +55,20 @@ pipeline {
                 branch 'develop'
             }
             steps {
-                sh '''
-                    /bin/bash -c "./mvnw compile com.google.cloud.tools:jib-maven-plugin:3.4.3:build -Dimage=$DOCKER_IMAGE:${env.BUILD_NUMBER} -Djib.to.auth.username=$DOCKERHUB_CREDENTIALS_USR -Djib.to.auth.password=$DOCKERHUB_CREDENTIALS_PSW"
-                '''
+                // Build Docker image bằng docker build
+                sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+            }
+        }
+        stage('Push Docker Image (Develop)') {
+            when {
+                branch 'develop'
+            }
+            steps {
+                // Đẩy image lên DockerHub
+                sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
+                sh "docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest"
+                sh "docker push ${DOCKER_IMAGE}:latest"
             }
         }
         stage('Trigger ArgoCD Sync (Staging)') {
@@ -63,14 +81,34 @@ pipeline {
                 '''
             }
         }
+        stage('Build and Test (Main)') {
+            when {
+                branch 'main'
+            }
+            steps {
+                // Build và test với profile postgres
+                sh './mvnw clean package -Dspring.profiles.active=postgres'
+            }
+        }
         stage('Build Docker Image (Main)') {
             when {
                 branch 'main'
             }
             steps {
-                sh '''
-                    /bin/bash -c "./mvnw compile com.google.cloud.tools:jib-maven-plugin:3.4.3:build -Dimage=$DOCKER_IMAGE:${env.BUILD_NUMBER} -Djib.to.auth.username=$DOCKERHUB_CREDENTIALS_USR -Djib.to.auth.password=$DOCKERHUB_CREDENTIALS_PSW"
-                '''
+                // Build Docker image bằng docker build
+                sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+            }
+        }
+        stage('Push Docker Image (Main)') {
+            when {
+                branch 'main'
+            }
+            steps {
+                // Đẩy image lên DockerHub
+                sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
+                sh "docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest"
+                sh "docker push ${DOCKER_IMAGE}:latest"
             }
         }
         stage('Trigger ArgoCD Sync (Production)') {
@@ -87,6 +125,15 @@ pipeline {
     post {
         always {
             cleanWs()
+            // Dọn dẹp Docker images
+            sh "docker rmi ${DOCKER_IMAGE}:${DOCKER_TAG} || true"
+            sh "docker rmi ${DOCKER_IMAGE}:latest || true"
+        }
+        success {
+            echo 'Build, test, and deployment successful!'
+        }
+        failure {
+            echo 'Pipeline failed. Check logs for details.'
         }
     }
 }
