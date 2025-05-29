@@ -6,7 +6,8 @@ pipeline {
         DOCKER_TAG = "${env.BUILD_NUMBER}"
         SONAR_TOKEN = credentials('sonarqube-token')
         GIT_CREDENTIALS = credentials('github-credentials')
-        ARGOCD_TOKEN = credentials('argocd-admin-token')
+        // Thêm credential cho tài khoản/mật khẩu ArgoCD
+        ARGOCD_CREDENTIALS = credentials('argocd-admin-credentials')
         // Biến môi trường cho PostgreSQL
         SPRING_PROFILES_ACTIVE = 'postgres'
         SPRING_DATASOURCE_URL = 'jdbc:postgresql://postgres-service.staging.svc.cluster.local:5432/petclinic'
@@ -77,7 +78,7 @@ pipeline {
             }
             steps {
                 sh '''
-                    /bin/bash -c "argocd app sync app-demo-staging --server 172.16.10.11:32120 --auth-token $ARGOCD_TOKEN --insecure"
+                    /bin/bash -c "argocd login 172.16.10.11:32120 --username $ARGOCD_CREDENTIALS_USR --password $ARGOCD_CREDENTIALS_PSW --insecure && argocd app sync app-demo-staging --server 172.16.10.11:32120 --insecure"
                 '''
             }
         }
@@ -117,7 +118,7 @@ pipeline {
             }
             steps {
                 sh '''
-                    /bin/bash -c "argocd app sync app-demo-production --server 172.16.10.11:32120 --auth-token $ARGOCD_TOKEN --insecure"
+                    /bin/bash -c "argocd login 172.16.10.11:32120 --username $ARGOCD_CREDENTIALS_USR --password $ARGOCD_CREDENTIALS_PSW --insecure && argocd app sync app-demo-production --server 172.16.10.11:32120 --insecure"
                 '''
             }
         }
