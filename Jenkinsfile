@@ -1,140 +1,154 @@
 pipeline {
     agent any
+    
     environment {
-        DOCKERHUB_CREDENTIALS = credentials('docker-hub-credentials')
-        DOCKER_IMAGE = "trunng5703/petclinic"
-        DOCKER_TAG = "${env.BUILD_NUMBER}"
-        SONAR_TOKEN = credentials('sonarqube-token')
-        GIT_CREDENTIALS = credentials('github-credentials')
-        // Thêm credential cho tài khoản/mật khẩu ArgoCD
-        ARGOCD_CREDENTIALS = credentials('argocd-admin-credentials')
-        // Biến môi trường cho PostgreSQL
-        SPRING_PROFILES_ACTIVE = 'postgres'
-        SPRING_DATASOURCE_URL = 'jdbc:postgresql://postgres-service.staging.svc.cluster.local:5432/petclinic'
-        SPRING_DATASOURCE_USERNAME = 'petclinic'
-        SPRING_DATASOURCE_PASSWORD = 'petclinic'
+        DOCKER_REGISTRY = 'docker.io'
+        DOCKER_IMAGE = 'trunng5703/petclinic'
+        SONAR_HOST = 'http://172.16.10.41:9000'
+        GIT_STAGING_REPO = 'https://github.com/Trunng5703/app-demo-staging.git'
+        GIT_PROD_REPO = 'https://github.com/Trunng5703/app-demo-production.git'
     }
+    
     stages {
         stage('Checkout') {
             steps {
+                checkout scm
                 script {
-                    if (!env.BRANCH_NAME) {
-                        error "Không có nhánh nào được chỉ định. Vui lòng kích hoạt build với một nhánh cụ thể (ví dụ: develop hoặc main)."
-                    }
-                    checkout([
-                        $class: 'GitSCM',
-                        branches: [[name: "*/${env.BRANCH_NAME}"]],
-                        userRemoteConfigs: [[
-                            url: 'https://github.com/Trunng5703/app-demo.git',
-                            credentialsId: 'github-credentials'
-                        ]]
-                    ])
+                    env.GIT_COMMIT_SHORT = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
+                    env.GIT_BRANCH_NAME = sh(returnStdout: true, script: "git rev-parse --abbrev-ref HEAD").trim()
                 }
             }
         }
-        stage('Build and Test (Develop)') {
-            when {
-                branch 'develop'
-            }
+        
+        stage('Build & Test') {
             steps {
-                // Bỏ qua test trên Jenkins với -DskipTests
-                sh './mvnw clean package -Dspring.profiles.active=postgres -DskipTests'
+                sh './mvnw clean compile test'
             }
         }
-        stage('SonarQube Scan (Develop)') {
-            when {
-                branch 'develop'
-            }
+        
+        stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('SonarQube') {
-                    sh './mvnw sonar:sonar -Dsonar.host.url=http://172.16.10.41:9000 -Dsonar.login=$SONAR_TOKEN'
+                    sh './mvnw sonar:sonar -Dsonar.projectKey=petclinic -Dsonar.host.url=$SONAR_HOST'
                 }
             }
         }
-        stage('Build Docker Image (Develop)') {
-            when {
-                branch 'develop'
-            }
+        
+        stage('Quality Gate') {
             steps {
-                // Build Docker image bằng docker build
-                sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+                timeout(time: 1, unit: 'HOURS') {
+                    waitForQualityGate abortPipeline: true
+                }
             }
         }
-        stage('Push Docker Image (Develop)') {
-            when {
-                branch 'develop'
-            }
+        
+        stage('Build Docker Image') {
             steps {
-                // Đẩy image lên DockerHub
-                sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
-                sh "docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest"
-                sh "docker push ${DOCKER_IMAGE}:latest"
+                script {
+                    def tag = env.GIT_BRANCH_NAME == 'main' ? 'latest' : env.GIT_BRANCH_NAME
+                    sh """
+                        ./mvnw spring-boot:build-image -DskipTests \
+                        -Dspring-boot.build-image.imageName=${DOCKER_IMAGE}:${tag}
+                    """
+                    
+                    // Also tag with commit SHA
+                    sh "docker tag ${DOCKER_IMAGE}:${tag} ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
+                }
             }
         }
-        stage('Trigger ArgoCD Sync (Staging)') {
-            when {
-                branch 'develop'
-            }
+        
+        stage('Push Docker Image') {
             steps {
-                sh '''
-                    /bin/bash -c "argocd login 172.16.10.11:32120 --username $ARGOCD_CREDENTIALS_USR --password $ARGOCD_CREDENTIALS_PSW --insecure && argocd app sync app-demo-staging --server 172.16.10.11:32120 --insecure"
-                '''
+                script {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'docker-hub-credentials',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
+                        sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                        
+                        def tag = env.GIT_BRANCH_NAME == 'main' ? 'latest' : env.GIT_BRANCH_NAME
+                        sh "docker push ${DOCKER_IMAGE}:${tag}"
+                        sh "docker push ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}"
+                    }
+                }
             }
         }
-        stage('Build and Test (Main)') {
+        
+        stage('Update GitOps Repository') {
             when {
-                branch 'main'
+                anyOf {
+                    branch 'staging'
+                    branch 'main'
+                }
             }
             steps {
-                // Bỏ qua test trên Jenkins với -DskipTests
-                sh './mvnw clean package -Dspring.profiles.active=postgres -DskipTests'
+                script {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'github-credentials',
+                        usernameVariable: 'GIT_USER',
+                        passwordVariable: 'GIT_TOKEN'
+                    )]) {
+                        def gitRepo = env.GIT_BRANCH_NAME == 'main' ? env.GIT_PROD_REPO : env.GIT_STAGING_REPO
+                        def imagePath = env.GIT_BRANCH_NAME == 'main' ? 
+                            'k8s/overlays/production/deployment-patch.yaml' : 
+                            'k8s/overlays/staging/deployment-patch.yaml'
+                        def imageTag = env.GIT_BRANCH_NAME == 'main' ? 'latest' : 'staging'
+                        
+                        sh """
+                            git config --global user.email "jenkins@devops.local"
+                            git config --global user.name "Jenkins CI"
+                            
+                            rm -rf gitops-tmp
+                            git clone https://${GIT_USER}:${GIT_TOKEN}@${gitRepo.replace('https://', '')} gitops-tmp
+                            cd gitops-tmp
+                            
+                            # Update image tag
+                            sed -i "s|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}|g" ${imagePath}
+                            
+                            git add .
+                            git commit -m "Update image to ${DOCKER_IMAGE}:${GIT_COMMIT_SHORT}" || true
+                            git push origin main
+                        """
+                    }
+                }
             }
         }
-        stage('Build Docker Image (Main)') {
+        
+        stage('Trigger ArgoCD Sync') {
             when {
-                branch 'main'
+                anyOf {
+                    branch 'staging'
+                    branch 'main'
+                }
             }
             steps {
-                // Build Docker image bằng docker build
-                sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
-            }
-        }
-        stage('Push Docker Image (Main)') {
-            when {
-                branch 'main'
-            }
-            steps {
-                // Đẩy image lên DockerHub
-                sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
-                sh "docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
-                sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest"
-                sh "docker push ${DOCKER_IMAGE}:latest"
-            }
-        }
-        stage('Trigger ArgoCD Sync (Production)') {
-            when {
-                branch 'main'
-            }
-            steps {
-                sh '''
-                    /bin/bash -c "argocd login 172.16.10.11:32120 --username $ARGOCD_CREDENTIALS_USR --password $ARGOCD_CREDENTIALS_PSW --insecure && argocd app sync app-demo-production --server 172.16.10.11:32120 --insecure"
-                '''
+                script {
+                    def appName = env.GIT_BRANCH_NAME == 'main' ? 'production' : 'staging'
+                    
+                    withCredentials([string(credentialsId: 'argocd-admin-token', variable: 'ARGOCD_TOKEN')]) {
+                        sh """
+                            curl -k -X POST \
+                            -H "Authorization: Bearer ${ARGOCD_TOKEN}" \
+                            -H "Content-Type: application/json" \
+                            https://172.16.10.11:32120/api/v1/applications/${appName}/sync
+                        """
+                    }
+                }
             }
         }
     }
+    
     post {
         always {
             cleanWs()
-            // Dọn dẹp Docker images
-            sh "docker rmi ${DOCKER_IMAGE}:${DOCKER_TAG} || true"
-            sh "docker rmi ${DOCKER_IMAGE}:latest || true"
+            sh 'docker system prune -f'
         }
         success {
-            echo 'Build, test, and deployment successful!'
+            echo 'Pipeline completed successfully!'
         }
         failure {
-            echo 'Pipeline failed. Check logs for details.'
+            echo 'Pipeline failed!'
         }
     }
 }
