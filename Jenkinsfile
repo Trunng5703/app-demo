@@ -1,90 +1,148 @@
 pipeline {
     agent any
+    
     environment {
-        DOCKERHUB_CREDENTIALS = credentials('docker-hub-credentials')
-        DOCKER_IMAGE = "trunng5703/petclinic"
-        SONAR_TOKEN = credentials('sonarqube-token')
-        GIT_CREDENTIALS = credentials('github-credentials')
-        ARGOCD_TOKEN = credentials('argocd-admin-token')  // Sử dụng tên credential chính xác
+        DOCKER_REGISTRY = 'docker.io'
+        DOCKER_IMAGE = 'trunng5703/petclinic'
+        SONAR_HOST = 'http://172.16.10.41:9000'
+        ARGOCD_SERVER = '172.16.10.11:31189'
     }
+    
     stages {
         stage('Checkout') {
             steps {
-                script {
-                    if (!env.BRANCH_NAME) {
-                        error "Không có nhánh nào được chỉ định. Vui lòng kích hoạt build với một nhánh cụ thể (ví dụ: develop hoặc main)."
-                    }
-                    checkout([
-                        $class: 'GitSCM',
-                        branches: [[name: "*/${env.BRANCH_NAME}"]],
-                        userRemoteConfigs: [[
-                            url: 'https://github.com/Trunng5703/app-demo.git',
-                            credentialsId: 'github-credentials'
-                        ]]
-                    ])
-                }
+                checkout scm
             }
         }
-        stage('Build and Test (Develop)') {
-            when {
-                branch 'develop'
-            }
+        
+        stage('Build') {
             steps {
-                sh './mvnw clean package -Dspring.profiles.active=test'
+                sh 'mvn clean compile'
             }
         }
-        stage('SonarQube Scan (Develop)') {
-            when {
-                branch 'develop'
+        
+        stage('Test') {
+            steps {
+                sh 'mvn test'
+                junit 'target/surefire-reports/*.xml'
             }
+        }
+        
+        stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('SonarQube') {
-                    sh './mvnw sonar:sonar -Dsonar.host.url=http://172.16.10.41:9000 -Dsonar.login=$SONAR_TOKEN'
+                    withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+                        sh """
+                            mvn sonar:sonar \
+                                -Dsonar.projectKey=petclinic \
+                                -Dsonar.host.url=${SONAR_HOST} \
+                                -Dsonar.login=${SONAR_TOKEN}
+                        """
+                    }
                 }
             }
         }
-        stage('Build Docker Image (Develop)') {
-            when {
-                branch 'develop'
-            }
+        
+        stage('Package') {
             steps {
-                sh '''
-                    /bin/bash -c "./mvnw compile com.google.cloud.tools:jib-maven-plugin:3.4.3:build -Dimage=$DOCKER_IMAGE:${env.BUILD_NUMBER} -Djib.to.auth.username=$DOCKERHUB_CREDENTIALS_USR -Djib.to.auth.password=$DOCKERHUB_CREDENTIALS_PSW"
-                '''
+                sh 'mvn package -DskipTests'
+                archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
             }
         }
-        stage('Trigger ArgoCD Sync (Staging)') {
-            when {
-                branch 'develop'
-            }
+        
+        stage('Build Docker Image') {
             steps {
-                sh '''
-                    /bin/bash -c "argocd app sync app-demo-staging --server 172.16.10.11:32120 --auth-token $ARGOCD_TOKEN --insecure"
-                '''
+                script {
+                    def gitCommit = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
+                    def imageTag = "${env.BRANCH_NAME}-${gitCommit}-${env.BUILD_NUMBER}"
+                    
+                    docker.build("${DOCKER_IMAGE}:${imageTag}")
+                    
+                    env.IMAGE_TAG = imageTag
+                }
             }
         }
-        stage('Build Docker Image (Main)') {
-            when {
-                branch 'main'
-            }
+        
+        stage('Push Docker Image') {
             steps {
-                sh '''
-                    /bin/bash -c "./mvnw compile com.google.cloud.tools:jib-maven-plugin:3.4.3:build -Dimage=$DOCKER_IMAGE:${env.BUILD_NUMBER} -Djib.to.auth.username=$DOCKERHUB_CREDENTIALS_USR -Djib.to.auth.password=$DOCKERHUB_CREDENTIALS_PSW"
-                '''
+                script {
+                    docker.withRegistry("https://${DOCKER_REGISTRY}", 'dockerhub-creds') {
+                        docker.image("${DOCKER_IMAGE}:${env.IMAGE_TAG}").push()
+                        docker.image("${DOCKER_IMAGE}:${env.IMAGE_TAG}").push("${env.BRANCH_NAME}-latest")
+                    }
+                }
             }
         }
-        stage('Trigger ArgoCD Sync (Production)') {
+        
+        stage('Update K8s Manifests') {
             when {
-                branch 'main'
+                anyOf {
+                    branch 'develop'
+                    branch 'main'
+                }
             }
             steps {
-                sh '''
-                    /bin/bash -c "argocd app sync app-demo-production --server 172.16.10.11:32120 --auth-token $ARGOCD_TOKEN --insecure"
-                '''
+                script {
+                    def targetRepo = env.BRANCH_NAME == 'develop' ? 'app-demo-staging' : 'app-demo-production'
+                    def targetEnv = env.BRANCH_NAME == 'develop' ? 'staging' : 'production'
+                    
+                    withCredentials([usernamePassword(
+                        credentialsId: 'github-creds',
+                        usernameVariable: 'GIT_USERNAME',
+                        passwordVariable: 'GIT_PASSWORD'
+                    )]) {
+                        sh """
+                            # Clone target repo
+                            rm -rf ${targetRepo}
+                            git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/Trunng5703/${targetRepo}.git
+                            
+                            # Update image tag
+                            cd ${targetRepo}
+                            sed -i 's|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${env.IMAGE_TAG}|' k8s/deployment.yaml
+                            
+                            # Commit and push
+                            git config user.email "jenkins@cicd.local"
+                            git config user.name "Jenkins CI"
+                            git add .
+                            git commit -m "Update image to ${env.IMAGE_TAG}"
+                            git push origin main
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy with ArgoCD') {
+            when {
+                anyOf {
+                    branch 'develop'
+                    branch 'main'
+                }
+            }
+            steps {
+                script {
+                    def appName = env.BRANCH_NAME == 'develop' ? 'petclinic-staging' : 'petclinic-production'
+                    
+                    withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
+                        sh """
+                            # ArgoCD sync
+                            export KUBECONFIG=${KUBECONFIG}
+                            argocd app sync ${appName} --insecure --server ${ARGOCD_SERVER}
+                            argocd app wait ${appName} --sync --health --timeout 300 --insecure --server ${ARGOCD_SERVER}
+                        """
+                    }
+                }
             }
         }
     }
+    
     post {
+        success {
+            echo 'Pipeline completed successfully!'
+        }
+        failure {
+            echo 'Pipeline failed!'
+        }
         always {
             cleanWs()
         }
